@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# testing
+coverage/
+
+# Next.js build output & cache (prevents 10,000+ generated files from clogging Git)
+.next/
+out/
+
+# production & build
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# OS & IDE files
+.DS_Store
+Thumbs.db
+*.pem
+.vscode/
+.idea/
+
+# debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# local env files
+.env
+.env*.local
+.env.production
+
+# vercel
+.vercel/
