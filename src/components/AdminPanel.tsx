@@ -4,10 +4,10 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import {
   AlertCircle,
-  ArrowRight,
   Car,
   Check,
   CheckCircle2,
+  ClipboardList,
   Clock,
   CreditCard,
   Eye,
@@ -21,7 +21,6 @@ import {
   RefreshCw,
   Search,
   ShieldAlert,
-  ShieldCheck,
   Star,
   Ticket,
   TrendingUp,
@@ -33,7 +32,15 @@ import {
 
 import { API_BASE, apiRequest } from "@/lib/api";
 
-type View = "overview" | "drivers" | "riders" | "rides" | "reports" | "promos" | "payments";
+type View =
+  | "overview"
+  | "drivers"
+  | "riders"
+  | "waitlist"
+  | "rides"
+  | "reports"
+  | "promos"
+  | "payments";
 type DriverStatus = "all" | "pending" | "approved" | "rejected";
 
 type AdminSession = {
@@ -46,6 +53,11 @@ type PageResult<T> = {
   total: number;
   limit: number;
   skip: number;
+};
+
+type WaitlistResult = PageResult<WaitlistEntry> & {
+  riders: number;
+  drivers: number;
 };
 
 type Overview = {
@@ -61,9 +73,21 @@ type Overview = {
 
 /** Onboarding documents, in the order ops reviews them. */
 const DRIVER_DOCUMENTS = [
-  { key: "licenseUrl", label: "Driver's licence", hint: "Front of a valid licence" },
-  { key: "insuranceUrl", label: "Insurance certificate", hint: "Must cover commercial use" },
-  { key: "vehiclePhotoUrl", label: "Vehicle photo", hint: "Clear shot showing the plate" },
+  {
+    key: "licenseUrl",
+    label: "Driver's licence",
+    hint: "Front of a valid licence",
+  },
+  {
+    key: "insuranceUrl",
+    label: "Insurance certificate",
+    hint: "Must cover commercial use",
+  },
+  {
+    key: "vehiclePhotoUrl",
+    label: "Vehicle photo",
+    hint: "Clear shot showing the plate",
+  },
 ] as const;
 
 type Driver = {
@@ -100,6 +124,16 @@ type Rider = {
   tripCount: number;
   isEmailVerified: boolean;
   createdAt: string;
+};
+
+type WaitlistEntry = {
+  id: string;
+  email: string;
+  role: "rider" | "driver";
+  city: string;
+  source: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type RideParty = { id: string; name: string; email?: string; plate?: string };
@@ -158,6 +192,7 @@ const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "drivers", label: "Drivers", icon: Car },
   { id: "riders", label: "Riders", icon: Users },
+  { id: "waitlist", label: "Waitlist", icon: ClipboardList },
   { id: "rides", label: "Rides", icon: MapPin },
   { id: "reports", label: "Reports", icon: ShieldAlert },
   { id: "promos", label: "Promos", icon: Ticket },
@@ -165,6 +200,14 @@ const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
 ];
 
 const emptyPage = { items: [], total: 0, limit: 50, skip: 0 };
+const emptyWaitlist: WaitlistResult = {
+  items: [],
+  total: 0,
+  limit: 100,
+  skip: 0,
+  riders: 0,
+  drivers: 0,
+};
 
 function formatNaira(value: number) {
   return new Intl.NumberFormat("en-NG", {
@@ -215,10 +258,12 @@ export function AdminPanel() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [drivers, setDrivers] = useState<PageResult<Driver>>(emptyPage);
   const [riders, setRiders] = useState<PageResult<Rider>>(emptyPage);
+  const [waitlist, setWaitlist] = useState<WaitlistResult>(emptyWaitlist);
   const [rides, setRides] = useState<PageResult<Ride>>(emptyPage);
   const [reports, setReports] = useState<PageResult<ReportItem>>(emptyPage);
   const [promos, setPromos] = useState<PageResult<Promo>>(emptyPage);
-  const [transactions, setTransactions] = useState<PageResult<Transaction>>(emptyPage);
+  const [transactions, setTransactions] =
+    useState<PageResult<Transaction>>(emptyPage);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState<Driver | null>(null);
@@ -240,13 +285,36 @@ export function AdminPanel() {
     setToken(localStorage.getItem("smartRideAdminToken"));
   }, []);
 
-  const pendingCount = useMemo(
-    () => drivers.items.filter((driver) => driver.applicationStatus === "pending").length,
-    [drivers.items],
-  );
+  const request = async <T,>(
+    path: string,
+    init?: Parameters<typeof apiRequest<T>>[1],
+  ) => apiRequest<T>(path, { ...init, token });
 
-  const request = async <T,>(path: string, init?: Parameters<typeof apiRequest<T>>[1]) =>
-    apiRequest<T>(path, { ...init, token });
+  const loadWaitlist = async (): Promise<WaitlistResult> => {
+    const firstPage = await request<WaitlistResult>("/waitlist?limit=100");
+
+    if (firstPage.items.length >= firstPage.total) return firstPage;
+
+    const remainingPages = await Promise.all(
+      Array.from(
+        { length: Math.ceil((firstPage.total - firstPage.items.length) / 100) },
+        (_item, index) =>
+          request<WaitlistResult>(
+            `/waitlist?limit=100&skip=${(index + 1) * 100}`,
+          ),
+      ),
+    );
+
+    return {
+      ...firstPage,
+      items: [
+        ...firstPage.items,
+        ...remainingPages.flatMap((page) => page.items),
+      ],
+      limit: firstPage.total,
+      skip: 0,
+    };
+  };
 
   const loadAll = async () => {
     if (!token) return;
@@ -258,6 +326,7 @@ export function AdminPanel() {
         nextOverview,
         nextDrivers,
         nextRiders,
+        nextWaitlist,
         nextRides,
         nextReports,
         nextPromos,
@@ -266,6 +335,7 @@ export function AdminPanel() {
         request<Overview>("/admin/overview"),
         request<PageResult<Driver>>(`/admin/drivers?status=${driverStatus}`),
         request<PageResult<Rider>>("/admin/riders"),
+        loadWaitlist(),
         request<PageResult<Ride>>("/admin/rides"),
         request<PageResult<ReportItem>>("/admin/reports"),
         request<PageResult<Promo>>("/admin/promos"),
@@ -274,12 +344,15 @@ export function AdminPanel() {
       setOverview(nextOverview);
       setDrivers(nextDrivers);
       setRiders(nextRiders);
+      setWaitlist(nextWaitlist);
       setRides(nextRides);
       setReports(nextReports);
       setPromos(nextPromos);
       setTransactions(nextTransactions);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load admin data");
+      setMessage(
+        error instanceof Error ? error.message : "Could not load admin data",
+      );
     } finally {
       setBusy(false);
     }
@@ -319,11 +392,15 @@ export function AdminPanel() {
     setBusy(true);
     setMessage(null);
     try {
-      await request<Driver>(`/admin/drivers/${driver.id}/approve`, { method: "POST" });
+      await request<Driver>(`/admin/drivers/${driver.id}/approve`, {
+        method: "POST",
+      });
       setMessage(`${driver.name} approved`);
       await loadAll();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not approve driver");
+      setMessage(
+        error instanceof Error ? error.message : "Could not approve driver",
+      );
     } finally {
       setBusy(false);
     }
@@ -343,7 +420,9 @@ export function AdminPanel() {
       setRejectReason("");
       await loadAll();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not reject driver");
+      setMessage(
+        error instanceof Error ? error.message : "Could not reject driver",
+      );
     } finally {
       setBusy(false);
     }
@@ -366,7 +445,9 @@ export function AdminPanel() {
           maxDiscountNaira: promoDraft.maxDiscountNaira
             ? Number(promoDraft.maxDiscountNaira)
             : null,
-          maxRedemptions: promoDraft.maxRedemptions ? Number(promoDraft.maxRedemptions) : null,
+          maxRedemptions: promoDraft.maxRedemptions
+            ? Number(promoDraft.maxRedemptions)
+            : null,
           perRiderLimit: Number(promoDraft.perRiderLimit || 1),
           expiresAt: promoDraft.expiresAt || null,
           active: true,
@@ -386,7 +467,9 @@ export function AdminPanel() {
       setMessage("Promo created successfully");
       await loadAll();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not create promo");
+      setMessage(
+        error instanceof Error ? error.message : "Could not create promo",
+      );
     } finally {
       setBusy(false);
     }
@@ -403,7 +486,9 @@ export function AdminPanel() {
       setMessage(promo.active ? "Promo paused" : "Promo activated");
       await loadAll();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not update promo");
+      setMessage(
+        error instanceof Error ? error.message : "Could not update promo",
+      );
     } finally {
       setBusy(false);
     }
@@ -426,9 +511,21 @@ export function AdminPanel() {
     if (!searchQuery.trim()) return riders.items;
     const q = searchQuery.toLowerCase();
     return riders.items.filter(
-      (r) => r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q),
+      (r) =>
+        r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q),
     );
   }, [riders.items, searchQuery]);
+
+  const filteredWaitlist = useMemo(() => {
+    if (!searchQuery.trim()) return waitlist.items;
+    const q = searchQuery.toLowerCase();
+    return waitlist.items.filter(
+      (entry) =>
+        entry.email.toLowerCase().includes(q) ||
+        entry.city.toLowerCase().includes(q) ||
+        entry.role.toLowerCase().includes(q),
+    );
+  }, [waitlist.items, searchQuery]);
 
   if (!token) {
     return (
@@ -436,7 +533,11 @@ export function AdminPanel() {
         <section className="login-card">
           <div className="brand-header">
             <div className="brand-mark">
-              <img src="/logo.png" alt="Smart Ride Logo" className="brand-logo-img" />
+              <img
+                src="/logo.png"
+                alt="Smart Ride Logo"
+                className="brand-logo-img"
+              />
             </div>
             <div className="brand-title">
               <p>Smart Ride</p>
@@ -444,7 +545,10 @@ export function AdminPanel() {
             </div>
           </div>
 
-          <form onSubmit={signIn} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          <form
+            onSubmit={signIn}
+            style={{ display: "flex", flexDirection: "column", gap: "16px" }}
+          >
             <label>
               Email address
               <input
@@ -468,7 +572,9 @@ export function AdminPanel() {
                 <button
                   type="button"
                   className="password-toggle"
-                  aria-label={passwordVisible ? "Hide password" : "Show password"}
+                  aria-label={
+                    passwordVisible ? "Hide password" : "Show password"
+                  }
                   aria-pressed={passwordVisible}
                   onClick={() => setPasswordVisible((visible) => !visible)}
                 >
@@ -476,7 +582,11 @@ export function AdminPanel() {
                 </button>
               </span>
             </label>
-            <button type="submit" disabled={busy} style={{ width: "100%", marginTop: "8px" }}>
+            <button
+              type="submit"
+              disabled={busy}
+              style={{ width: "100%", marginTop: "8px" }}
+            >
               {busy ? <RefreshCw className="animate-spin" size={16} /> : null}
               {busy ? "Signing in..." : "Sign in to console"}
             </button>
@@ -484,7 +594,13 @@ export function AdminPanel() {
 
           {message && <div className="toast-notice error">{message}</div>}
 
-          <div style={{ textAlign: "center", fontSize: "12px", color: "var(--text-secondary)" }}>
+          <div
+            style={{
+              textAlign: "center",
+              fontSize: "12px",
+              color: "var(--text-secondary)",
+            }}
+          >
             Connected to <strong>{API_BASE}</strong>
           </div>
         </section>
@@ -498,7 +614,11 @@ export function AdminPanel() {
       <aside className="sidebar">
         <div className="brand-header">
           <div className="brand-mark">
-            <img src="/logo.png" alt="Smart Ride Logo" className="brand-logo-img" />
+            <img
+              src="/logo.png"
+              alt="Smart Ride Logo"
+              className="brand-logo-img"
+            />
           </div>
           <div className="brand-title">
             <p>Smart Ride</p>
@@ -536,8 +656,14 @@ export function AdminPanel() {
           <div className="user-profile-info">
             <div className="user-avatar">AD</div>
             <div style={{ display: "flex", flexDirection: "column" }}>
-              <span style={{ fontSize: "13px", fontWeight: "600" }}>System Admin</span>
-              <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>Ops Lead</span>
+              <span style={{ fontSize: "13px", fontWeight: "600" }}>
+                System Admin
+              </span>
+              <span
+                style={{ fontSize: "11px", color: "var(--text-secondary)" }}
+              >
+                Ops Lead
+              </span>
             </div>
           </div>
           <button
@@ -561,7 +687,9 @@ export function AdminPanel() {
           </div>
 
           <div className="topbar-actions">
-            {(view === "drivers" || view === "riders") && (
+            {(view === "drivers" ||
+              view === "riders" ||
+              view === "waitlist") && (
               <div className="search-pill-box">
                 <Search size={16} />
                 <input
@@ -589,7 +717,9 @@ export function AdminPanel() {
 
         {/* OVERVIEW VIEW */}
         {view === "overview" && overview && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "24px" }}
+          >
             <div className="metrics-grid">
               <MetricCard
                 icon={Clock}
@@ -621,18 +751,42 @@ export function AdminPanel() {
             </div>
 
             <div className="metrics-grid">
-              <MetricCard icon={CheckCircle2} label="Completed today" value={overview.completedToday} />
-              <MetricCard icon={Users} label="Total riders" value={overview.riders} />
-              <MetricCard icon={UserCheck} label="Total drivers" value={overview.drivers} />
-              <MetricCard icon={ShieldAlert} tone="danger" label="Open reports" value={overview.reportsOpen} />
+              <MetricCard
+                icon={CheckCircle2}
+                label="Completed today"
+                value={overview.completedToday}
+              />
+              <MetricCard
+                icon={Users}
+                label="Total riders"
+                value={overview.riders}
+              />
+              <MetricCard
+                icon={UserCheck}
+                label="Total drivers"
+                value={overview.drivers}
+              />
+              <MetricCard
+                icon={ShieldAlert}
+                tone="danger"
+                label="Open reports"
+                value={overview.reportsOpen}
+              />
             </div>
 
             <div className="map-snapshot-card">
-              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                <div className="status-pill verified" style={{ width: "fit-content" }}>
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "4px" }}
+              >
+                <div
+                  className="status-pill verified"
+                  style={{ width: "fit-content" }}
+                >
                   <Zap size={12} /> Live Ops Region
                 </div>
-                <h3 style={{ fontSize: "20px", fontWeight: "700" }}>Zaria & Lokoja Operations Corridor</h3>
+                <h3 style={{ fontSize: "20px", fontWeight: "700" }}>
+                  Zaria & Lokoja Operations Corridor
+                </h3>
                 <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
                   Real-time OpenStreetMap dispatch grid active.
                 </p>
@@ -646,17 +800,23 @@ export function AdminPanel() {
           <section className="content-panel">
             <div className="panel-toolbar">
               <div>
-                <h3 style={{ fontSize: "18px", fontWeight: "700" }}>Driver Applications</h3>
+                <h3 style={{ fontSize: "18px", fontWeight: "700" }}>
+                  Driver Applications
+                </h3>
                 <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
                   {filteredDrivers.length} drivers found in {driverStatus} list
                 </p>
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "10px" }}
+              >
                 <Filter size={16} color="var(--text-secondary)" />
                 <select
                   value={driverStatus}
-                  onChange={(e) => setDriverStatus(e.target.value as DriverStatus)}
+                  onChange={(e) =>
+                    setDriverStatus(e.target.value as DriverStatus)
+                  }
                   style={{ width: "auto", minWidth: "140px" }}
                 >
                   <option value="pending">Pending Review</option>
@@ -679,10 +839,14 @@ export function AdminPanel() {
               {filteredDrivers.map((driver) => (
                 <div className="table-row driver-grid-cols" key={driver.id}>
                   <div className="row-user-info">
-                    <div className="user-avatar">{getInitials(driver.name)}</div>
+                    <div className="user-avatar">
+                      {getInitials(driver.name)}
+                    </div>
                     <div className="details">
                       <span className="name">{driver.name}</span>
-                      <span className="subtext">{driver.email} • {driver.phone}</span>
+                      <span className="subtext">
+                        {driver.email} • {driver.phone}
+                      </span>
                     </div>
                   </div>
 
@@ -690,8 +854,17 @@ export function AdminPanel() {
                     <span className="vehicle-chip">
                       <Car size={13} /> {driver.vehicle}
                     </span>
-                    <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "4px" }}>
-                      Plate: <strong>{driver.plate}</strong> • Tier: <span style={{ textTransform: "capitalize" }}>{driver.tier}</span>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        color: "var(--text-secondary)",
+                        marginTop: "4px",
+                      }}
+                    >
+                      Plate: <strong>{driver.plate}</strong> • Tier:{" "}
+                      <span style={{ textTransform: "capitalize" }}>
+                        {driver.tier}
+                      </span>
                     </div>
                   </div>
 
@@ -705,7 +878,13 @@ export function AdminPanel() {
                     <div className="rating-badge">
                       <Star size={13} /> {driver.rating.toFixed(2)}
                     </div>
-                    <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "2px" }}>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        color: "var(--text-secondary)",
+                        marginTop: "2px",
+                      }}
+                    >
                       {driver.trips} trips • {formatNaira(driver.earningsNaira)}
                     </div>
                   </div>
@@ -720,7 +899,8 @@ export function AdminPanel() {
                       <FileText size={14} /> Docs {documentCount(driver)}/3
                     </button>
 
-                    {driver.applicationStatus === "pending" || !driver.approved ? (
+                    {driver.applicationStatus === "pending" ||
+                    !driver.approved ? (
                       <button
                         type="button"
                         className="btn-sm"
@@ -750,7 +930,9 @@ export function AdminPanel() {
           <section className="content-panel">
             <div className="panel-toolbar">
               <div>
-                <h3 style={{ fontSize: "18px", fontWeight: "700" }}>Rider Accounts</h3>
+                <h3 style={{ fontSize: "18px", fontWeight: "700" }}>
+                  Rider Accounts
+                </h3>
                 <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
                   {filteredRiders.length} registered riders
                 </p>
@@ -768,12 +950,17 @@ export function AdminPanel() {
               {filteredRiders.map((rider) => (
                 <div className="table-row directory-grid-cols" key={rider.id}>
                   <div className="row-user-info">
-                    <div className="user-avatar" style={{ background: "var(--primary-soft)" }}>
+                    <div
+                      className="user-avatar"
+                      style={{ background: "var(--primary-soft)" }}
+                    >
                       {getInitials(rider.name)}
                     </div>
                     <div className="details">
                       <span className="name">{rider.name}</span>
-                      <span className="subtext">{rider.email} • {rider.phone || "No phone"}</span>
+                      <span className="subtext">
+                        {rider.email} • {rider.phone || "No phone"}
+                      </span>
                     </div>
                   </div>
 
@@ -781,18 +968,28 @@ export function AdminPanel() {
                     <div className="rating-badge">
                       <Star size={13} /> {rider.rating.toFixed(2)}
                     </div>
-                    <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "2px" }}>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        color: "var(--text-secondary)",
+                        marginTop: "2px",
+                      }}
+                    >
                       {rider.tripCount} completed trips
                     </div>
                   </div>
 
                   <div>
-                    <span className={`status-pill ${rider.isEmailVerified ? "verified" : "unverified"}`}>
+                    <span
+                      className={`status-pill ${rider.isEmailVerified ? "verified" : "unverified"}`}
+                    >
                       {rider.isEmailVerified ? "Verified" : "Unverified"}
                     </span>
                   </div>
 
-                  <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                  <div
+                    style={{ fontSize: "13px", color: "var(--text-secondary)" }}
+                  >
                     {formatDate(rider.createdAt)}
                   </div>
                 </div>
@@ -801,12 +998,131 @@ export function AdminPanel() {
           </section>
         )}
 
+        {/* WAITLIST VIEW */}
+        {view === "waitlist" && (
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "24px" }}
+          >
+            <div className="metrics-grid">
+              <MetricCard
+                icon={ClipboardList}
+                label="Total waitlist"
+                value={waitlist.total}
+                subtitle="People waiting for app booking"
+              />
+              <MetricCard
+                icon={Users}
+                tone="success"
+                label="Customers"
+                value={waitlist.riders}
+                subtitle="Personal and team booking interest"
+              />
+              <MetricCard
+                icon={Car}
+                tone="warn"
+                label="Driver role entries"
+                value={waitlist.drivers}
+                subtitle="Legacy signups before customer-only positioning"
+              />
+            </div>
+
+            <section className="content-panel">
+              <div className="panel-toolbar">
+                <div>
+                  <h3 style={{ fontSize: "18px", fontWeight: "700" }}>
+                    Waitlist Signups
+                  </h3>
+                  <p
+                    style={{ fontSize: "13px", color: "var(--text-secondary)" }}
+                  >
+                    Showing {filteredWaitlist.length} of {waitlist.total} email
+                    addresses
+                  </p>
+                </div>
+              </div>
+
+              <div className="table-container">
+                <div className="table-header waitlist-grid-cols">
+                  <span>Email</span>
+                  <span>Area</span>
+                  <span>Type</span>
+                  <span>Source</span>
+                  <span>Joined</span>
+                </div>
+
+                {filteredWaitlist.map((entry) => (
+                  <div className="table-row waitlist-grid-cols" key={entry.id}>
+                    <div className="row-user-info">
+                      <div
+                        className="user-avatar"
+                        style={{ background: "var(--primary-soft)" }}
+                      >
+                        {entry.email.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="details">
+                        <span className="name">{entry.email}</span>
+                        <span className="subtext">
+                          Updated {formatDate(entry.updatedAt)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize: "13px",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      {entry.city || "Not provided"}
+                    </div>
+
+                    <div>
+                      <span
+                        className={`status-pill ${entry.role === "rider" ? "verified" : "paused"}`}
+                      >
+                        {entry.role === "rider" ? "Customer" : "Driver"}
+                      </span>
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize: "13px",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      {entry.source || "landing"}
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize: "13px",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      {formatDate(entry.createdAt)}
+                    </div>
+                  </div>
+                ))}
+
+                {!filteredWaitlist.length && (
+                  <div className="empty-state">
+                    <ClipboardList size={24} />
+                    <span>No waitlist signups found</span>
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
+        )}
+
         {/* RIDES VIEW */}
         {view === "rides" && (
           <section className="content-panel">
             <div className="panel-toolbar">
               <div>
-                <h3 style={{ fontSize: "18px", fontWeight: "700" }}>Ride History & Dispatch Log</h3>
+                <h3 style={{ fontSize: "18px", fontWeight: "700" }}>
+                  Ride History & Dispatch Log
+                </h3>
                 <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
                   {rides.total} total dispatch trips
                 </p>
@@ -827,10 +1143,21 @@ export function AdminPanel() {
                     <div style={{ fontSize: "14px", fontWeight: "600" }}>
                       {personName(ride.rider)} → {ride.dropoff.name}
                     </div>
-                    <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "3px" }}>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        color: "var(--text-secondary)",
+                        marginTop: "3px",
+                      }}
+                    >
                       Pickup: {ride.pickup.address}
                     </div>
-                    <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
                       Dropoff: {ride.dropoff.address}
                     </div>
                   </div>
@@ -839,16 +1166,26 @@ export function AdminPanel() {
                     <div style={{ fontSize: "15px", fontWeight: "700" }}>
                       {formatNaira(ride.fare.totalNaira + ride.tipNaira)}
                     </div>
-                    <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "2px" }}>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        color: "var(--text-secondary)",
+                        marginTop: "2px",
+                      }}
+                    >
                       {ride.tier} • {ride.payment} • {ride.paymentStatus}
                     </div>
                   </div>
 
                   <div>
-                    <span className={`status-pill ${ride.status}`}>{ride.status}</span>
+                    <span className={`status-pill ${ride.status}`}>
+                      {ride.status}
+                    </span>
                   </div>
 
-                  <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                  <div
+                    style={{ fontSize: "13px", color: "var(--text-secondary)" }}
+                  >
                     {formatDate(ride.createdAt)}
                   </div>
                 </div>
@@ -862,7 +1199,9 @@ export function AdminPanel() {
           <section className="content-panel">
             <div className="panel-toolbar">
               <div>
-                <h3 style={{ fontSize: "18px", fontWeight: "700" }}>Safety & Support Reports</h3>
+                <h3 style={{ fontSize: "18px", fontWeight: "700" }}>
+                  Safety & Support Reports
+                </h3>
                 <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
                   {reports.total} open incident flags
                 </p>
@@ -883,17 +1222,32 @@ export function AdminPanel() {
                     gap: "12px",
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
+                  >
                     <span className="status-pill rejected">
-                      <AlertCircle size={14} /> {item.report.category.replaceAll("_", " ")}
+                      <AlertCircle size={14} />{" "}
+                      {item.report.category.replaceAll("_", " ")}
                     </span>
-                    <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
                       {formatDate(item.report.createdAt)}
                     </span>
                   </div>
 
-                  <div style={{ fontSize: "14px", color: "var(--text-primary)" }}>
-                    {item.report.details || "No detail notes provided by rider."}
+                  <div
+                    style={{ fontSize: "14px", color: "var(--text-primary)" }}
+                  >
+                    {item.report.details ||
+                      "No detail notes provided by rider."}
                   </div>
 
                   <div
@@ -907,8 +1261,12 @@ export function AdminPanel() {
                       color: "var(--text-secondary)",
                     }}
                   >
-                    <span>Rider: <strong>{personName(item.ride.rider)}</strong></span>
-                    <span>Route: {item.ride.pickup.name} → {item.ride.dropoff.name}</span>
+                    <span>
+                      Rider: <strong>{personName(item.ride.rider)}</strong>
+                    </span>
+                    <span>
+                      Route: {item.ride.pickup.name} → {item.ride.dropoff.name}
+                    </span>
                   </div>
                 </div>
               ))}
@@ -918,9 +1276,17 @@ export function AdminPanel() {
 
         {/* PROMOS VIEW */}
         {view === "promos" && (
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 380px) 1fr", gap: "24px" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(320px, 380px) 1fr",
+              gap: "24px",
+            }}
+          >
             <form className="content-panel" onSubmit={createPromo}>
-              <h3 style={{ fontSize: "18px", fontWeight: "700" }}>Create Promo Code</h3>
+              <h3 style={{ fontSize: "18px", fontWeight: "700" }}>
+                Create Promo Code
+              </h3>
 
               <label>
                 Promo code
@@ -929,7 +1295,10 @@ export function AdminPanel() {
                   placeholder="e.g. SMART20"
                   value={promoDraft.code}
                   onChange={(e) =>
-                    setPromoDraft((draft) => ({ ...draft, code: e.target.value.toUpperCase() }))
+                    setPromoDraft((draft) => ({
+                      ...draft,
+                      code: e.target.value.toUpperCase(),
+                    }))
                   }
                   required
                 />
@@ -942,13 +1311,22 @@ export function AdminPanel() {
                   placeholder="20% off your next ride"
                   value={promoDraft.description}
                   onChange={(e) =>
-                    setPromoDraft((draft) => ({ ...draft, description: e.target.value }))
+                    setPromoDraft((draft) => ({
+                      ...draft,
+                      description: e.target.value,
+                    }))
                   }
                   required
                 />
               </label>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "12px",
+                }}
+              >
                 <label>
                   Type
                   <select
@@ -971,14 +1349,23 @@ export function AdminPanel() {
                     min="1"
                     value={promoDraft.value}
                     onChange={(e) =>
-                      setPromoDraft((draft) => ({ ...draft, value: e.target.value }))
+                      setPromoDraft((draft) => ({
+                        ...draft,
+                        value: e.target.value,
+                      }))
                     }
                     required
                   />
                 </label>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "12px",
+                }}
+              >
                 <label>
                   Min fare (NGN)
                   <input
@@ -986,7 +1373,10 @@ export function AdminPanel() {
                     min="0"
                     value={promoDraft.minFareNaira}
                     onChange={(e) =>
-                      setPromoDraft((draft) => ({ ...draft, minFareNaira: e.target.value }))
+                      setPromoDraft((draft) => ({
+                        ...draft,
+                        minFareNaira: e.target.value,
+                      }))
                     }
                   />
                 </label>
@@ -998,42 +1388,73 @@ export function AdminPanel() {
                     placeholder="Unlimited"
                     value={promoDraft.maxDiscountNaira}
                     onChange={(e) =>
-                      setPromoDraft((draft) => ({ ...draft, maxDiscountNaira: e.target.value }))
+                      setPromoDraft((draft) => ({
+                        ...draft,
+                        maxDiscountNaira: e.target.value,
+                      }))
                     }
                   />
                 </label>
               </div>
 
-              <button type="submit" disabled={busy} style={{ width: "100%", marginTop: "8px" }}>
+              <button
+                type="submit"
+                disabled={busy}
+                style={{ width: "100%", marginTop: "8px" }}
+              >
                 <Plus size={16} /> Create Promo
               </button>
             </form>
 
             <section className="content-panel">
-              <h3 style={{ fontSize: "18px", fontWeight: "700" }}>Active Campaigns</h3>
+              <h3 style={{ fontSize: "18px", fontWeight: "700" }}>
+                Active Campaigns
+              </h3>
               <div className="table-container">
                 {promos.items.map((promo) => (
-                  <div className="table-row" style={{ gridTemplateColumns: "1.5fr 1fr 1fr 1fr" }} key={promo.id}>
+                  <div
+                    className="table-row"
+                    style={{ gridTemplateColumns: "1.5fr 1fr 1fr 1fr" }}
+                    key={promo.id}
+                  >
                     <div>
-                      <div className="vehicle-chip" style={{ fontWeight: "700" }}>
+                      <div
+                        className="vehicle-chip"
+                        style={{ fontWeight: "700" }}
+                      >
                         <Ticket size={13} /> {promo.code}
                       </div>
-                      <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "4px" }}>
+                      <div
+                        style={{
+                          fontSize: "12px",
+                          color: "var(--text-secondary)",
+                          marginTop: "4px",
+                        }}
+                      >
                         {promo.description}
                       </div>
                     </div>
 
                     <div>
                       <div style={{ fontSize: "15px", fontWeight: "700" }}>
-                        {promo.kind === "fixed" ? formatNaira(promo.value) : `${promo.value}% OFF`}
+                        {promo.kind === "fixed"
+                          ? formatNaira(promo.value)
+                          : `${promo.value}% OFF`}
                       </div>
-                      <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                      <div
+                        style={{
+                          fontSize: "12px",
+                          color: "var(--text-secondary)",
+                        }}
+                      >
                         {promo.redemptions} redemptions
                       </div>
                     </div>
 
                     <div>
-                      <span className={`status-pill ${promo.active ? "active" : "paused"}`}>
+                      <span
+                        className={`status-pill ${promo.active ? "active" : "paused"}`}
+                      >
                         {promo.active ? "Active" : "Paused"}
                       </span>
                     </div>
@@ -1060,7 +1481,9 @@ export function AdminPanel() {
           <section className="content-panel">
             <div className="panel-toolbar">
               <div>
-                <h3 style={{ fontSize: "18px", fontWeight: "700" }}>Financial Transactions</h3>
+                <h3 style={{ fontSize: "18px", fontWeight: "700" }}>
+                  Financial Transactions
+                </h3>
                 <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
                   {transactions.total} gateway transactions logged
                 </p>
@@ -1078,24 +1501,42 @@ export function AdminPanel() {
               {transactions.items.map((t) => (
                 <div className="table-row ride-grid-cols" key={t.id}>
                   <div>
-                    <div style={{ fontSize: "14px", fontWeight: "600" }}>{t.reference}</div>
-                    <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>{t.purpose}</div>
+                    <div style={{ fontSize: "14px", fontWeight: "600" }}>
+                      {t.reference}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      {t.purpose}
+                    </div>
                   </div>
 
                   <div>
                     <div style={{ fontSize: "15px", fontWeight: "700" }}>
                       {formatNaira(t.amountKobo / 100)}
                     </div>
-                    <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
                       {personName(t.rider)}
                     </div>
                   </div>
 
                   <div>
-                    <span className={`status-pill ${t.status}`}>{t.status}</span>
+                    <span className={`status-pill ${t.status}`}>
+                      {t.status}
+                    </span>
                   </div>
 
-                  <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                  <div
+                    style={{ fontSize: "13px", color: "var(--text-secondary)" }}
+                  >
                     {formatDate(t.paidAt ?? t.createdAt)}
                   </div>
                 </div>
@@ -1109,12 +1550,22 @@ export function AdminPanel() {
       {reviewing && (
         <div className="modal-overlay">
           <div className="modal-dialog modal-wide">
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
               <div>
-                <h3 style={{ fontSize: "18px", fontWeight: "700" }}>{reviewing.name}</h3>
+                <h3 style={{ fontSize: "18px", fontWeight: "700" }}>
+                  {reviewing.name}
+                </h3>
                 <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
                   {reviewing.vehicle} • Plate {reviewing.plate} •{" "}
-                  <span style={{ textTransform: "capitalize" }}>{reviewing.tier}</span>
+                  <span style={{ textTransform: "capitalize" }}>
+                    {reviewing.tier}
+                  </span>
                 </p>
               </div>
               <button
@@ -1131,17 +1582,20 @@ export function AdminPanel() {
               <span className={`status-pill ${reviewing.applicationStatus}`}>
                 {reviewing.applicationStatus}
               </span>
-              <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+              <span
+                style={{ fontSize: "13px", color: "var(--text-secondary)" }}
+              >
                 {reviewing.email} • {reviewing.phone}
               </span>
             </div>
 
-            {reviewing.applicationStatus === "rejected" && reviewing.rejectionReason && (
-              <div className="review-reason">
-                <AlertCircle size={15} />
-                <span>Previously rejected: {reviewing.rejectionReason}</span>
-              </div>
-            )}
+            {reviewing.applicationStatus === "rejected" &&
+              reviewing.rejectionReason && (
+                <div className="review-reason">
+                  <AlertCircle size={15} />
+                  <span>Previously rejected: {reviewing.rejectionReason}</span>
+                </div>
+              )}
 
             <div className="document-grid">
               {DRIVER_DOCUMENTS.map((document) => {
@@ -1186,8 +1640,18 @@ export function AdminPanel() {
               })}
             </div>
 
-            <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
-              <button type="button" className="btn-secondary" onClick={() => setReviewing(null)}>
+            <div
+              style={{
+                display: "flex",
+                gap: "12px",
+                justifyContent: "flex-end",
+              }}
+            >
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setReviewing(null)}
+              >
                 Close
               </button>
               <button
@@ -1209,7 +1673,9 @@ export function AdminPanel() {
                   setReviewing(null);
                   void approveDriver(driver);
                 }}
-                disabled={busy || documentCount(reviewing) < DRIVER_DOCUMENTS.length}
+                disabled={
+                  busy || documentCount(reviewing) < DRIVER_DOCUMENTS.length
+                }
                 title={
                   documentCount(reviewing) < DRIVER_DOCUMENTS.length
                     ? "All three documents must be submitted before approval"
@@ -1226,8 +1692,16 @@ export function AdminPanel() {
       {rejecting && (
         <div className="modal-overlay">
           <div className="modal-dialog">
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <h3 style={{ fontSize: "18px", fontWeight: "700" }}>Reject {rejecting.name}</h3>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <h3 style={{ fontSize: "18px", fontWeight: "700" }}>
+                Reject {rejecting.name}
+              </h3>
               <button
                 type="button"
                 className="btn-ghost"
@@ -1239,7 +1713,8 @@ export function AdminPanel() {
             </div>
 
             <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-              Provide a clear reason for rejecting this driver application. The reason will be sent to the driver and recorded in audit logs.
+              Provide a clear reason for rejecting this driver application. The
+              reason will be sent to the driver and recorded in audit logs.
             </p>
 
             <textarea
@@ -1249,8 +1724,18 @@ export function AdminPanel() {
               rows={4}
             />
 
-            <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
-              <button type="button" className="btn-secondary" onClick={() => setRejecting(null)}>
+            <div
+              style={{
+                display: "flex",
+                gap: "12px",
+                justifyContent: "flex-end",
+              }}
+            >
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setRejecting(null)}
+              >
                 Cancel
               </button>
               <button
@@ -1285,7 +1770,13 @@ function MetricCard({
   return (
     <div className="metric-card">
       <div className="metric-header">
-        <span style={{ fontSize: "13px", fontWeight: "500", color: "var(--text-secondary)" }}>
+        <span
+          style={{
+            fontSize: "13px",
+            fontWeight: "500",
+            color: "var(--text-secondary)",
+          }}
+        >
           {label}
         </span>
         <div className={`metric-icon-box ${tone ?? ""}`}>

@@ -1,46 +1,47 @@
-@import url('https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap");
 
 :root {
   /* Smart Ride Figma Design Tokens (matching rider-app theme) */
   --primary: #000000;
-  --primary-on: #FFFFFF;
-  --white: #FFFFFF;
+  --primary-on: #ffffff;
+  --white: #ffffff;
   --black: #000000;
 
-  --background: #F7F7F7;
-  --surface: #FFFFFF;
-  --surface-muted: #FAFAFA;
-  --primary-soft: #F1F1F1;
-  --avatar-backdrop: #D1FFF4;
+  --background: #f7f7f7;
+  --surface: #ffffff;
+  --surface-muted: #fafafa;
+  --primary-soft: #f1f1f1;
+  --avatar-backdrop: #d1fff4;
 
   --text-primary: #000000;
   --text-secondary: rgba(0, 0, 0, 0.55);
   --text-muted: #666666;
-  --text-inverse: #FFFFFF;
+  --text-inverse: #ffffff;
 
   --border-subtle: rgba(0, 0, 0, 0.08);
   --border-selected: #000000;
-  --border-line: #E5E7EB;
+  --border-line: #e5e7eb;
 
-  --field-bg: #F5F6F8;
+  --field-bg: #f5f6f8;
   --field-placeholder: rgba(31, 31, 31, 0.4);
-  --field-label: #1F1F1F;
+  --field-label: #1f1f1f;
   --field-border: rgba(31, 31, 31, 0.15);
 
-  --status-success: #16A34A;
-  --status-success-bg: #DCFCE7;
-  --status-warning: #F59E0B;
-  --status-warning-bg: #FEF3C7;
-  --status-danger: #DC2626;
-  --status-danger-bg: #FEE2E2;
-  --status-star: #FFD60A;
+  --status-success: #16a34a;
+  --status-success-bg: #dcfce7;
+  --status-warning: #f59e0b;
+  --status-warning-bg: #fef3c7;
+  --status-danger: #dc2626;
+  --status-danger-bg: #fee2e2;
+  --status-star: #ffd60a;
 
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
   --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.03);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.04);
   --shadow-xl: 0 24px 60px rgba(0, 0, 0, 0.14), 0 4px 12px rgba(0, 0, 0, 0.06);
 
-  --font-sans: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-sans:
+    "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 * {
@@ -83,7 +84,12 @@ textarea {
 }
 
 /* Base Typography */
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   color: var(--text-primary);
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -284,7 +290,7 @@ textarea {
 .status-pill.in-transit,
 .status-pill.paused {
   background: var(--status-warning-bg);
-  color: #B45309;
+  color: #b45309;
 }
 
 .status-pill.rejected,
@@ -302,8 +308,16 @@ textarea {
   place-items: center;
   padding: 24px;
   background:
-    radial-gradient(circle at 50% 30%, rgba(209, 255, 244, 0.35) 0%, transparent 60%),
-    linear-gradient(180deg, rgba(247, 247, 247, 0.82) 0%, rgba(247, 247, 247, 0.98) 100%),
+    radial-gradient(
+      circle at 50% 30%,
+      rgba(209, 255, 244, 0.35) 0%,
+      transparent 60%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(247, 247, 247, 0.82) 0%,
+      rgba(247, 247, 247, 0.98) 100%
+    ),
     url("https://tile.openstreetmap.org/12/2266/1917.png");
   background-size: cover;
 }
@@ -379,14 +393,14 @@ textarea {
 }
 
 .brand-mark::after {
-  content: '';
+  content: "";
   position: absolute;
   top: -2px;
   right: -2px;
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  background: #16A34A;
+  background: #16a34a;
   border: 2px solid var(--white);
 }
 
@@ -581,7 +595,7 @@ textarea {
 
 .metric-icon-box.warn {
   background: var(--status-warning-bg);
-  color: #B45309;
+  color: #b45309;
 }
 
 .metric-icon-box.danger {
@@ -619,7 +633,11 @@ textarea {
   flex-direction: column;
   justify-content: flex-end;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(247, 247, 247, 0.6) 100%),
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.95) 0%,
+      rgba(247, 247, 247, 0.6) 100%
+    ),
     url("https://tile.openstreetmap.org/12/2267/1917.png");
   background-size: cover;
   background-position: center;
@@ -690,6 +708,23 @@ textarea {
 
 .ride-grid-cols {
   grid-template-columns: 2.2fr 1.2fr 1fr 1.2fr;
+}
+
+.waitlist-grid-cols {
+  grid-template-columns: 2fr 1fr 0.8fr 0.8fr 1fr;
+}
+
+.empty-state {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  min-height: 160px;
+  padding: 28px;
+  border-radius: 16px;
+  border: 1px dashed var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 13px;
+  background: var(--surface-muted);
 }
 
 .row-user-info {
@@ -822,8 +857,12 @@ textarea {
   font-weight: 600;
 }
 
-.document-ok { color: #16a34a; }
-.document-missing { color: #f59e0b; }
+.document-ok {
+  color: #16a34a;
+}
+.document-missing {
+  color: #f59e0b;
+}
 
 /* Fixed height so a portrait licence and a landscape vehicle shot line up. */
 .document-image {
@@ -888,7 +927,8 @@ textarea {
 
   .driver-grid-cols,
   .directory-grid-cols,
-  .ride-grid-cols {
+  .ride-grid-cols,
+  .waitlist-grid-cols {
     grid-template-columns: 1fr;
   }
 
