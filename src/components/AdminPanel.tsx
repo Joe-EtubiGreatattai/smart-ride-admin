@@ -71,20 +71,47 @@ type Overview = {
   revenueNaira: number;
 };
 
-/** Onboarding documents, in the order ops reviews them. */
+/**
+ * Onboarding documents, in the order ops reviews them.
+ *
+ * Mirrors the checklist the rider app collects (five steps, six uploads —
+ * the licence has two sides). Every one the driver can submit is listed, so a
+ * missing document shows as an explicit gap rather than not appearing at all.
+ */
 const DRIVER_DOCUMENTS = [
   {
     key: "licenseUrl",
-    label: "Driver's licence",
-    hint: "Front of a valid licence",
+    required: true,
+    label: "Driver's licence — front",
+    hint: "Photo, name and licence number must be readable",
+  },
+  {
+    key: "licenseBackUrl",
+    required: true,
+    label: "Driver's licence — back",
+    hint: "Expiry date and any endorsements",
+  },
+  {
+    key: "registrationUrl",
+    required: true,
+    label: "Vehicle registration",
+    hint: "Plate must match the application",
   },
   {
     key: "insuranceUrl",
+    required: true,
     label: "Insurance certificate",
     hint: "Must cover commercial use",
   },
   {
+    key: "inspectionUrl",
+    required: true,
+    label: "Vehicle inspection",
+    hint: "Roadworthiness within the last 12 months",
+  },
+  {
     key: "vehiclePhotoUrl",
+    required: false,
     label: "Vehicle photo",
     hint: "Clear shot showing the plate",
   },
@@ -103,7 +130,10 @@ type Driver = {
   rejectionReason?: string | null;
   /** Onboarding paperwork, null until the driver uploads it. */
   licenseUrl?: string | null;
+  licenseBackUrl?: string | null;
+  registrationUrl?: string | null;
   insuranceUrl?: string | null;
+  inspectionUrl?: string | null;
   vehiclePhotoUrl?: string | null;
   avatarUrl?: string | null;
   online: boolean;
@@ -233,9 +263,24 @@ function personName(value: string | RideParty | null | undefined) {
   return value.name;
 }
 
-/** How many of the three onboarding documents a driver has submitted. */
+/** Documents that must be on file before a driver can be approved. */
+const REQUIRED_DOCUMENTS = DRIVER_DOCUMENTS.filter((document) => document.required);
+
+/** How many onboarding documents a driver has submitted, of any kind. */
 function documentCount(driver: Driver): number {
   return DRIVER_DOCUMENTS.filter((document) => driver[document.key]).length;
+}
+
+/**
+ * How many of the required ones are in.
+ *
+ * The vehicle photo is deliberately not required: the rider app's onboarding
+ * checklist never asks for one — it is collected in the driver app — so gating
+ * approval on it would make every application from the rider app impossible to
+ * approve.
+ */
+function requiredDocumentCount(driver: Driver): number {
+  return REQUIRED_DOCUMENTS.filter((document) => driver[document.key]).length;
 }
 
 function getInitials(name: string) {
@@ -896,7 +941,8 @@ export function AdminPanel() {
                       onClick={() => setReviewing(driver)}
                       title="Review submitted documents"
                     >
-                      <FileText size={14} /> Docs {documentCount(driver)}/3
+                      <FileText size={14} /> Docs {documentCount(driver)}/
+                      {DRIVER_DOCUMENTS.length}
                     </button>
 
                     {driver.applicationStatus === "pending" ||
@@ -1604,7 +1650,13 @@ export function AdminPanel() {
                 return (
                   <div className="document-card" key={document.key}>
                     <div className="document-card-head">
-                      <span className="document-label">{document.label}</span>
+                      <span className="document-label">
+                        {document.label}
+                        {!document.required && (
+                          // Says why a gap here does not block approval.
+                          <span className="document-optional"> · optional</span>
+                        )}
+                      </span>
                       {url ? (
                         <CheckCircle2 size={14} className="document-ok" />
                       ) : (
@@ -1674,11 +1726,11 @@ export function AdminPanel() {
                   void approveDriver(driver);
                 }}
                 disabled={
-                  busy || documentCount(reviewing) < DRIVER_DOCUMENTS.length
+                  busy || requiredDocumentCount(reviewing) < REQUIRED_DOCUMENTS.length
                 }
                 title={
-                  documentCount(reviewing) < DRIVER_DOCUMENTS.length
-                    ? "All three documents must be submitted before approval"
+                  requiredDocumentCount(reviewing) < REQUIRED_DOCUMENTS.length
+                    ? `All ${REQUIRED_DOCUMENTS.length} required documents must be submitted before approval`
                     : "Approve this driver"
                 }
               >

@@ -857,6 +857,12 @@ textarea {
   font-weight: 600;
 }
 
+/* A gap here does not block approval, so it should not read as a failure. */
+.document-optional {
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
 .document-ok {
   color: #16a34a;
 }
