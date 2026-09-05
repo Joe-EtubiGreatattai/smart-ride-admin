@@ -9,6 +9,8 @@ import {
   CheckCircle2,
   Clock,
   CreditCard,
+  Eye,
+  EyeOff,
   Filter,
   LayoutDashboard,
   LogOut,
@@ -187,6 +189,7 @@ export function AdminPanel() {
   const [token, setToken] = useState<string | null>(null);
   const [email, setEmail] = useState("admin@smartride.local");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [view, setView] = useState<View>("overview");
   const [driverStatus, setDriverStatus] = useState<DriverStatus>("pending");
   const [searchQuery, setSearchQuery] = useState("");
@@ -434,13 +437,24 @@ export function AdminPanel() {
             </label>
             <label>
               Password
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="••••••••••••"
-                required
-              />
+              <span className="password-field">
+                <input
+                  type={passwordVisible ? "text" : "password"}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="••••••••••••"
+                  required
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  aria-label={passwordVisible ? "Hide password" : "Show password"}
+                  aria-pressed={passwordVisible}
+                  onClick={() => setPasswordVisible((visible) => !visible)}
+                >
+                  {passwordVisible ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </span>
             </label>
             <button type="submit" disabled={busy} style={{ width: "100%", marginTop: "8px" }}>
               {busy ? <RefreshCw className="animate-spin" size={16} /> : null}
@@ -1159,4 +1173,3 @@ function RadioIcon(props: { size?: number; className?: string }) {
     </svg>
   );
 }
-
