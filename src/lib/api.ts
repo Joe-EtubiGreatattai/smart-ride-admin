@@ -1,5 +1,5 @@
 export const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "http://localhost:3002/api";
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "https://smartride.techtree.lifestyle/api";
 
 export class ApiError extends Error {
   constructor(

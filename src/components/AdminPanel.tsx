@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import {
   AlertCircle,
   ArrowRight,
@@ -11,6 +12,7 @@ import {
   CreditCard,
   Eye,
   EyeOff,
+  FileText,
   Filter,
   LayoutDashboard,
   LogOut,
@@ -57,6 +59,13 @@ type Overview = {
   revenueNaira: number;
 };
 
+/** Onboarding documents, in the order ops reviews them. */
+const DRIVER_DOCUMENTS = [
+  { key: "licenseUrl", label: "Driver's licence", hint: "Front of a valid licence" },
+  { key: "insuranceUrl", label: "Insurance certificate", hint: "Must cover commercial use" },
+  { key: "vehiclePhotoUrl", label: "Vehicle photo", hint: "Clear shot showing the plate" },
+] as const;
+
 type Driver = {
   id: string;
   name: string;
@@ -68,6 +77,11 @@ type Driver = {
   approved: boolean;
   applicationStatus: DriverStatus;
   rejectionReason?: string | null;
+  /** Onboarding paperwork, null until the driver uploads it. */
+  licenseUrl?: string | null;
+  insuranceUrl?: string | null;
+  vehiclePhotoUrl?: string | null;
+  avatarUrl?: string | null;
   online: boolean;
   onTrip: boolean;
   rating: number;
@@ -176,6 +190,11 @@ function personName(value: string | RideParty | null | undefined) {
   return value.name;
 }
 
+/** How many of the three onboarding documents a driver has submitted. */
+function documentCount(driver: Driver): number {
+  return DRIVER_DOCUMENTS.filter((document) => driver[document.key]).length;
+}
+
 function getInitials(name: string) {
   return name
     .split(" ")
@@ -203,6 +222,7 @@ export function AdminPanel() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState<Driver | null>(null);
+  const [reviewing, setReviewing] = useState<Driver | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [promoDraft, setPromoDraft] = useState({
     code: "",
@@ -691,6 +711,15 @@ export function AdminPanel() {
                   </div>
 
                   <div className="row-actions-group">
+                    <button
+                      type="button"
+                      className="btn-sm btn-secondary"
+                      onClick={() => setReviewing(driver)}
+                      title="Review submitted documents"
+                    >
+                      <FileText size={14} /> Docs {documentCount(driver)}/3
+                    </button>
+
                     {driver.applicationStatus === "pending" || !driver.approved ? (
                       <button
                         type="button"
@@ -1077,6 +1106,123 @@ export function AdminPanel() {
       </main>
 
       {/* Driver Rejection Reason Modal */}
+      {reviewing && (
+        <div className="modal-overlay">
+          <div className="modal-dialog modal-wide">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <h3 style={{ fontSize: "18px", fontWeight: "700" }}>{reviewing.name}</h3>
+                <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                  {reviewing.vehicle} • Plate {reviewing.plate} •{" "}
+                  <span style={{ textTransform: "capitalize" }}>{reviewing.tier}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setReviewing(null)}
+                style={{ padding: 0, minHeight: "32px", width: "32px" }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="review-meta">
+              <span className={`status-pill ${reviewing.applicationStatus}`}>
+                {reviewing.applicationStatus}
+              </span>
+              <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                {reviewing.email} • {reviewing.phone}
+              </span>
+            </div>
+
+            {reviewing.applicationStatus === "rejected" && reviewing.rejectionReason && (
+              <div className="review-reason">
+                <AlertCircle size={15} />
+                <span>Previously rejected: {reviewing.rejectionReason}</span>
+              </div>
+            )}
+
+            <div className="document-grid">
+              {DRIVER_DOCUMENTS.map((document) => {
+                const url = reviewing[document.key];
+
+                return (
+                  <div className="document-card" key={document.key}>
+                    <div className="document-card-head">
+                      <span className="document-label">{document.label}</span>
+                      {url ? (
+                        <CheckCircle2 size={14} className="document-ok" />
+                      ) : (
+                        <Clock size={14} className="document-missing" />
+                      )}
+                    </div>
+
+                    {url ? (
+                      // Opens the untouched original, since a reviewer often
+                      // needs to zoom into small print the thumbnail loses.
+                      <a href={url} target="_blank" rel="noopener noreferrer">
+                        <Image
+                          src={url}
+                          alt={document.label}
+                          width={320}
+                          height={220}
+                          className="document-image"
+                          unoptimized
+                        />
+                      </a>
+                    ) : (
+                      <div className="document-empty">
+                        <FileText size={22} />
+                        <span>Not submitted</span>
+                      </div>
+                    )}
+
+                    <span className="document-hint">
+                      {url ? "Click to open full size" : document.hint}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+              <button type="button" className="btn-secondary" onClick={() => setReviewing(null)}>
+                Close
+              </button>
+              <button
+                type="button"
+                className="btn-danger-outline"
+                onClick={() => {
+                  setRejecting(reviewing);
+                  setReviewing(null);
+                }}
+                disabled={busy}
+              >
+                <X size={14} /> Reject
+              </button>
+              <button
+                type="button"
+                className="btn-sm"
+                onClick={() => {
+                  const driver = reviewing;
+                  setReviewing(null);
+                  void approveDriver(driver);
+                }}
+                disabled={busy || documentCount(reviewing) < DRIVER_DOCUMENTS.length}
+                title={
+                  documentCount(reviewing) < DRIVER_DOCUMENTS.length
+                    ? "All three documents must be submitted before approval"
+                    : "Approve this driver"
+                }
+              >
+                <Check size={14} /> Approve
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {rejecting && (
         <div className="modal-overlay">
           <div className="modal-dialog">

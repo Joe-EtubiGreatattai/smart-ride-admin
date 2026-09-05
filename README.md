@@ -12,7 +12,7 @@ npm run dev
 The panel reads `NEXT_PUBLIC_API_URL`; when it is not set it uses:
 
 ```bash
-http://localhost:3002/api
+https://smartride.techtree.lifestyle/api
 ```
 
 ## Admin Login
