@@ -22,6 +22,7 @@ import {
   Search,
   ShieldAlert,
   Star,
+  Building2,
   Ticket,
   TrendingUp,
   UserCheck,
@@ -34,6 +35,7 @@ import { API_BASE, apiRequest } from "@/lib/api";
 
 type View =
   | "overview"
+  | "cities"
   | "drivers"
   | "riders"
   | "waitlist"
@@ -117,6 +119,26 @@ const DRIVER_DOCUMENTS = [
   },
 ] as const;
 
+/** Ride options, in the order the apps display them. */
+const TIERS = [
+  { id: "keke", label: "Smart Keke" },
+  { id: "comfort", label: "Smart Comfort" },
+  { id: "eco", label: "Smart Eco" },
+  { id: "premium", label: "Smart Premium" },
+] as const;
+
+type TierId = (typeof TIERS)[number]["id"];
+
+type ServiceArea = {
+  id: string;
+  name: string;
+  slug: string;
+  radiusMeters: number;
+  /** Which ride options are offered here. */
+  tiers: TierId[];
+  active: boolean;
+};
+
 type Driver = {
   id: string;
   name: string;
@@ -124,7 +146,7 @@ type Driver = {
   phone: string;
   vehicle: string;
   plate: string;
-  tier: "eco" | "comfort" | "premium";
+  tier: "keke" | "eco" | "comfort" | "premium";
   approved: boolean;
   applicationStatus: DriverStatus;
   rejectionReason?: string | null;
@@ -225,6 +247,7 @@ const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "waitlist", label: "Waitlist", icon: ClipboardList },
   { id: "rides", label: "Rides", icon: MapPin },
   { id: "reports", label: "Reports", icon: ShieldAlert },
+  { id: "cities", label: "Cities", icon: Building2 },
   { id: "promos", label: "Promos", icon: Ticket },
   { id: "payments", label: "Payments", icon: CreditCard },
 ];
@@ -307,6 +330,7 @@ export function AdminPanel() {
   const [rides, setRides] = useState<PageResult<Ride>>(emptyPage);
   const [reports, setReports] = useState<PageResult<ReportItem>>(emptyPage);
   const [promos, setPromos] = useState<PageResult<Promo>>(emptyPage);
+  const [cities, setCities] = useState<ServiceArea[]>([]);
   const [transactions, setTransactions] =
     useState<PageResult<Transaction>>(emptyPage);
   const [busy, setBusy] = useState(false);
@@ -376,6 +400,7 @@ export function AdminPanel() {
         nextReports,
         nextPromos,
         nextTransactions,
+        nextCities,
       ] = await Promise.all([
         request<Overview>("/admin/overview"),
         request<PageResult<Driver>>(`/admin/drivers?status=${driverStatus}`),
@@ -385,6 +410,7 @@ export function AdminPanel() {
         request<PageResult<ReportItem>>("/admin/reports"),
         request<PageResult<Promo>>("/admin/promos"),
         request<PageResult<Transaction>>("/admin/transactions"),
+        request<ServiceArea[]>("/admin/service-areas"),
       ]);
       setOverview(nextOverview);
       setDrivers(nextDrivers);
@@ -394,6 +420,7 @@ export function AdminPanel() {
       setReports(nextReports);
       setPromos(nextPromos);
       setTransactions(nextTransactions);
+      setCities(nextCities);
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Could not load admin data",
@@ -407,6 +434,53 @@ export function AdminPanel() {
     void loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, driverStatus]);
+
+  /**
+   * Turns one ride option on or off for one city.
+   *
+   * The row is updated from the server's response rather than optimistically:
+   * a tier list that silently disagrees with the backend would have riders
+   * seeing options ops thinks are off.
+   */
+  const toggleCityTier = async (city: ServiceArea, tier: TierId) => {
+    const next = city.tiers.includes(tier)
+      ? city.tiers.filter((id) => id !== tier)
+      : [...city.tiers, tier];
+
+    setBusy(true);
+    setMessage(null);
+    try {
+      const updated = await request<ServiceArea>(`/admin/service-areas/${city.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ tiers: next }),
+      });
+      setCities((current) =>
+        current.map((row) => (row.id === updated.id ? updated : row)),
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not update that city");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleCityActive = async (city: ServiceArea) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const updated = await request<ServiceArea>(`/admin/service-areas/${city.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ active: !city.active }),
+      });
+      setCities((current) =>
+        current.map((row) => (row.id === updated.id ? updated : row)),
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not update that city");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const signIn = async (event: FormEvent) => {
     event.preventDefault();
@@ -1321,6 +1395,89 @@ export function AdminPanel() {
         )}
 
         {/* PROMOS VIEW */}
+        {view === "cities" && (
+          <div className="content-panel">
+            <div className="panel-head">
+              <div>
+                <h3 style={{ fontSize: "18px", fontWeight: 700, margin: 0 }}>
+                  Cities &amp; ride options
+                </h3>
+                <p className="panel-sub">
+                  Which options riders are offered, decided by where they are
+                  picked up. Switching one off hides it from the app and refuses
+                  it at booking. A pickup outside every city below still sees all
+                  options.
+                </p>
+              </div>
+            </div>
+
+            <div className="city-grid">
+              {cities.map((city) => (
+                <div className="city-card" key={city.id}>
+                  <div className="city-head">
+                    <div>
+                      <div className="city-name">{city.name}</div>
+                      <div className="city-meta">
+                        {Math.round(city.radiusMeters / 1000)} km radius ·{" "}
+                        {city.tiers.length} of {TIERS.length} options on
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className={`city-power ${city.active ? "on" : "off"}`}
+                      onClick={() => void toggleCityActive(city)}
+                      disabled={busy}
+                      title={
+                        city.active
+                          ? `Stop offering rides in ${city.name}`
+                          : `Start offering rides in ${city.name}`
+                      }
+                    >
+                      {city.active ? "Live" : "Paused"}
+                    </button>
+                  </div>
+
+                  <div className="tier-list">
+                    {TIERS.map((tier) => {
+                      const on = city.tiers.includes(tier.id);
+
+                      return (
+                        <button
+                          type="button"
+                          key={tier.id}
+                          className={`tier-toggle ${on ? "on" : "off"}`}
+                          onClick={() => void toggleCityTier(city, tier.id)}
+                          disabled={busy || !city.active}
+                          aria-pressed={on}
+                        >
+                          <span className="tier-name">{tier.label}</span>
+                          <span className="tier-state">{on ? "On" : "Off"}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {!city.active && (
+                    <p className="city-warn">
+                      Paused — no rides are offered here whatever the options say.
+                    </p>
+                  )}
+                  {city.active && city.tiers.length === 0 && (
+                    <p className="city-warn">
+                      Every option is off, so riders here cannot book at all.
+                    </p>
+                  )}
+                </div>
+              ))}
+
+              {cities.length === 0 && !busy && (
+                <p className="panel-sub">No cities configured yet.</p>
+              )}
+            </div>
+          </div>
+        )}
+
         {view === "promos" && (
           <div
             style={{
