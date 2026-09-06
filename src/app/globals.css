@@ -1015,6 +1015,7 @@ textarea {
   border-color: rgba(245, 158, 11, 0.3);
 }
 .city-power:disabled { opacity: 0.55; cursor: default; }
+.city-power:hover:not(:disabled) { transform: none; box-shadow: none; }
 
 .tier-list {
   display: flex;
@@ -1032,11 +1033,20 @@ textarea {
   border-radius: 9px;
   border: 1px solid var(--border);
   background: transparent;
+  /* The global button rule paints text white for the black primary button;
+     these are list rows on a white card, so they take the page's ink. */
+  color: var(--text-primary);
   cursor: pointer;
   font-size: 14px;
   text-align: left;
 }
-.tier-toggle:hover:not(:disabled) { border-color: var(--text-secondary); }
+/* A row in a list should not lift and cast a shadow the way a CTA does. */
+.tier-toggle:hover:not(:disabled) {
+  border-color: var(--text-secondary);
+  transform: none;
+  box-shadow: none;
+  opacity: 1;
+}
 .tier-toggle:disabled { opacity: 0.5; cursor: default; }
 
 .tier-name { font-weight: 500; }
