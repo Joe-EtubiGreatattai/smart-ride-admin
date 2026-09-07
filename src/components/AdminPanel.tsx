@@ -31,7 +31,7 @@ import {
   Zap,
 } from "lucide-react";
 
-import { API_BASE, apiRequest } from "@/lib/api";
+import { API_BASE, ApiError, apiRequest } from "@/lib/api";
 
 type View =
   | "overview"
@@ -354,10 +354,34 @@ export function AdminPanel() {
     setToken(localStorage.getItem("smartRideAdminToken"));
   }, []);
 
+  /**
+   * Every authenticated call goes through here, which makes it the one place
+   * an expired session can be noticed.
+   *
+   * Previously a 401 surfaced as whatever the caller's catch block said —
+   * "Could not approve driver" — leaving you on a console whose every button
+   * failed for a reason it never named. Now the token is dropped, which drops
+   * straight back to the sign-in form, and the message says why.
+   */
   const request = async <T,>(
     path: string,
     init?: Parameters<typeof apiRequest<T>>[1],
-  ) => apiRequest<T>(path, { ...init, token });
+  ): Promise<T> => {
+    try {
+      return await apiRequest<T>(path, { ...init, token });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        localStorage.removeItem("smartRideAdminToken");
+        setToken(null);
+
+        // Callers report `error.message`, so this is what ends up on the
+        // sign-in screen rather than their own generic fallback.
+        throw new ApiError("Your session expired. Please sign in again.", 401);
+      }
+
+      throw error;
+    }
+  };
 
   const loadWaitlist = async (): Promise<WaitlistResult> => {
     const firstPage = await request<WaitlistResult>("/waitlist?limit=100");
